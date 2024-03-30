@@ -34,7 +34,7 @@ public class DiscoveryServerSecConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity httpSecurity) throws Exception {
-        httpSecurity.csrf(Customizer.withDefaults())
+        httpSecurity.csrf().disable()
                 .authorizeRequests()
                 .anyRequest()
                 .authenticated()
