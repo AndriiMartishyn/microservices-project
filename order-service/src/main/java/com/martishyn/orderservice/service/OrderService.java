@@ -3,10 +3,12 @@ package com.martishyn.orderservice.service;
 import com.martishyn.orderservice.dto.InventoryResponse;
 import com.martishyn.orderservice.dto.OrderLineItemsDto;
 import com.martishyn.orderservice.dto.OrderRequest;
+import com.martishyn.orderservice.event.OrderPlacedEvent;
 import com.martishyn.orderservice.model.Order;
 import com.martishyn.orderservice.model.OrderLineItems;
 import com.martishyn.orderservice.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -20,9 +22,10 @@ import java.util.UUID;
 @Transactional
 public class OrderService {
     private final OrderRepository orderRepository;
-    private final WebClient webClient;
+    private final WebClient.Builder webClientBuilder;
+    private final KafkaTemplate<String, OrderPlacedEvent> kafkaTemplate;
 
-    public void placeOrder(OrderRequest orderRequest) {
+    public String placeOrder(OrderRequest orderRequest) {
         Order order = new Order();
         order.setOrderNumber(UUID.randomUUID().toString());
         List<OrderLineItems> orderLineItems = orderRequest.getOrderLineItemsDtoList().stream()
@@ -34,8 +37,8 @@ public class OrderService {
                 .stream()
                 .map(OrderLineItems::getSkuCode).toList();
 
-        InventoryResponse[] inventoryResponseArray = webClient.get()
-                .uri("http://localhost:8082/api/inventory", uriBuilder -> uriBuilder.queryParam("skuCode", skuCodes).build())
+        InventoryResponse[] inventoryResponseArray = webClientBuilder.build().get()
+                .uri("http://inventory-service/api/inventory", uriBuilder -> uriBuilder.queryParam("skuCode", skuCodes).build())
                 .retrieve()
                 .bodyToMono(InventoryResponse[].class)
                 .block();
@@ -44,6 +47,8 @@ public class OrderService {
                 .allMatch(InventoryResponse::isInStock);
         if (allProductsInStock) {
             orderRepository.save(order);
+            kafkaTemplate.send("notificationTopic", new OrderPlacedEvent(order.getOrderNumber()));
+            return "Order placed successfully";
         } else {
             throw new IllegalArgumentException("Product not in stock. Please try again later");
         }
